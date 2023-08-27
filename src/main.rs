@@ -96,7 +96,8 @@ fn process_filter(
 
         let allow = match line[1] {
             "deny" => false,
-            _ => true,
+            "permit" => true,
+            _ => continue,
         };
 
         let cidr = match IpCidr::from_str(line[2]) {

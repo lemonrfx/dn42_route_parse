@@ -1,8 +1,7 @@
-use std::{env, fs, io, net, process};
+use std::{env, fs, io, net::IpAddr, process};
 
 use anyhow::{anyhow, Result};
 use chrono::{Days, Utc};
-use cidr_utils::cidr::IpCidr;
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -24,6 +23,54 @@ struct ROA {
 struct Routes {
     metadata: Metadata,
     roas: Vec<ROA>,
+}
+
+struct CIDR {
+    ip: IpAddr,
+    netmask: u8,
+}
+
+impl CIDR {
+    fn from_str(s: &str) -> Result<CIDR> {
+        let parts: Vec<_> = s.split("/").collect();
+        if parts.len() != 2 {
+            return Err(anyhow!("invalid CIDR: {s}"));
+        }
+
+        let ip: IpAddr = match parts[0].parse() {
+            Ok(ip) => ip,
+            Err(_) => return Err(anyhow!("invalid CIDR: {s}")),
+        };
+
+        let netmask: u8 = match parts[1].parse() {
+            Ok(n) => n,
+            Err(_) => return Err(anyhow!("invalid CIDR: {s}")),
+        };
+
+        Ok(CIDR {
+            ip,
+            netmask,
+        })
+    }
+
+    fn contains(&self, ip: &IpAddr) -> bool {
+        match (&self.ip, ip) {
+            (IpAddr::V4(a), IpAddr::V4(b)) => {
+                let a = u32::from(*a);
+                let b = u32::from(*b);
+
+                a >> (32 - self.netmask) == b >> (32 - self.netmask)
+            },
+            (IpAddr::V6(a), IpAddr::V6(b)) => {
+                let a = u128::from(*a);
+                let b = u128::from(*b);
+
+                a >> (128 - self.netmask) == b >> (128 - self.netmask)
+            },
+            (IpAddr::V4(_), IpAddr::V6(_)) => false,
+            (IpAddr::V6(_), IpAddr::V4(_)) => false,
+        }
+    }
 }
 
 fn main() -> Result<()> {
@@ -74,7 +121,7 @@ fn main() -> Result<()> {
 
 fn process_filter(
     path: &str,
-    filters: &mut Vec<(IpCidr, bool, u8, u8)>
+    filters: &mut Vec<(CIDR, bool, u8, u8)>
 ) -> Result<()> {
     let filter = fs::read_to_string(path)?;
 
@@ -100,7 +147,7 @@ fn process_filter(
             _ => continue,
         };
 
-        let cidr = match IpCidr::from_str(line[2]) {
+        let cidr = match CIDR::from_str(line[2]) {
             Ok(cidr) => cidr,
             Err(_) => continue,
         };
@@ -116,7 +163,7 @@ fn process_filter(
             Err(_) => continue,
         };
 
-        filters.push((cidr.to_owned(), allow, min, max));
+        filters.push((cidr, allow, min, max));
     }
 
     Ok(())
@@ -125,7 +172,7 @@ fn process_filter(
 fn process_directory(
     path: &str,
     roas: &mut Vec<ROA>,
-    filters: &Vec<(IpCidr, bool, u8, u8)>
+    filters: &Vec<(CIDR, bool, u8, u8)>
 ) -> Result<()> {
     let files = fs::read_dir(path)?;
 
@@ -146,7 +193,7 @@ fn process_directory(
 
 fn process_entry(
     file: Result<fs::DirEntry, io::Error>,
-    filters: &Vec<(IpCidr, bool, u8, u8)>
+    filters: &Vec<(CIDR, bool, u8, u8)>
 ) -> Result<Vec<ROA>> {
     let file = file?.path();
     let file = fs::read_to_string(file)?;
@@ -191,13 +238,13 @@ fn process_entry(
         return Err(anyhow!("invalid CIDR: {}", prefix));
     }
 
-    let addr: net::IpAddr = prefix_parts[0].parse()?;
+    let addr: IpAddr = prefix_parts[0].parse()?;
     let netmask: u8 = prefix_parts[1].parse()?;
 
     let mut filter: Option<(u8, u8)> = None;
 
     for f in filters {
-        if f.0.contains(addr) {
+        if f.0.contains(&addr) {
             if !f.1 {
                 return Ok(vec![]);
             }

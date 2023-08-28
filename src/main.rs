@@ -1,4 +1,4 @@
-use std::{env, fs, io, net::IpAddr, process, time::{SystemTime, UNIX_EPOCH}};
+use std::{env, fs, io, net::IpAddr, time::{SystemTime, UNIX_EPOCH}};
 
 use anyhow::{anyhow, Result};
 use serde::Serialize;
@@ -76,8 +76,7 @@ fn main() -> Result<()> {
     let args: Vec<_> = env::args().collect();
 
     if args.len() != 3 {
-        eprintln!("Usage: {} registry route.json", args[0]);
-        process::exit(1);
+        return Err(anyhow!("Usage: {} registry route.json", args[0]));
     }
 
     let mut filters = vec![];
@@ -98,7 +97,6 @@ fn main() -> Result<()> {
 
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
     let expire = now + 7 * 24 * 60 * 60;
-
 
     let metadata = Metadata {
         counts: roas.len(),

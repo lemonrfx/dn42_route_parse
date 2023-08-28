@@ -1,14 +1,13 @@
-use std::{env, fs, io, net::IpAddr, process};
+use std::{env, fs, io, net::IpAddr, process, time::{SystemTime, UNIX_EPOCH}};
 
 use anyhow::{anyhow, Result};
-use chrono::{Days, Utc};
 use serde::Serialize;
 
 #[derive(Serialize)]
 struct Metadata {
     counts: usize,
-    generated: i64,
-    valid: i64,
+    generated: u64,
+    valid: u64,
 }
 
 #[derive(Serialize)]
@@ -97,15 +96,14 @@ fn main() -> Result<()> {
     let path = format!("{}/data/route6", args[1]);
     process_directory(&path, &mut roas, &filters)?;
 
-    let now = Utc::now();
-    let expire = now
-        .checked_add_days(Days::new(7))
-        .ok_or(anyhow!("invalid date"))?;
+    let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+    let expire = now + 7 * 24 * 60 * 60;
+
 
     let metadata = Metadata {
         counts: roas.len(),
-        generated: now.timestamp(),
-        valid: expire.timestamp(),
+        generated: now,
+        valid: expire,
     };
 
     let routes = Routes {
